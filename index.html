@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slime Garden</title>
+<style>
+  :root { --bg: #07060b; --fg: #e9e4f5; --muted: #8b84a3; --panel: rgba(20, 17, 30, 0.82); --line: rgba(255,255,255,0.08); --accent: #f3c76b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; cursor: crosshair; touch-action: none; }
+  .panel { position: fixed; top: 16px; left: 16px; width: 248px; max-width: calc(100vw - 32px); background: var(--panel); backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .panel.collapsed .body { display: none; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  h1 { margin: 0; font-size: 15px; letter-spacing: 0.02em; }
+  h1 span { color: var(--accent); }
+  .toggle { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; padding: 0; }
+  p.hint { margin: 6px 0 12px; color: var(--muted); }
+  label { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin: 8px 0; color: var(--muted); }
+  label output { color: var(--fg); font-variant-numeric: tabular-nums; }
+  input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  select, button.b { width: 100%; background: rgba(255,255,255,0.06); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; cursor: pointer; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+  .stats { margin-top: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  kbd { background: rgba(255,255,255,0.08); border-radius: 4px; padding: 0 4px; font: inherit; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="panel" id="panel">
+  <div class="head">
+    <h1>Slime <span>Garden</span></h1>
+    <button class="toggle" id="toggle" aria-label="Collapse panel">hide</button>
+  </div>
+  <div class="body">
+    <p class="hint">Each dot smells the trail ahead of it, left, and right, then turns toward the strongest scent. The networks come from that rule alone. <b>Drag</b> to plant food.</p>
+
+    <select id="preset" aria-label="Preset"></select>
+
+    <label>Sensor angle <output id="o-sa"></output><input id="sa" type="range" min="5" max="90" step="1"></label>
+    <label>Turn angle <output id="o-ra"></output><input id="ra" type="range" min="5" max="90" step="1"></label>
+    <label>Sensor distance <output id="o-so"></output><input id="so" type="range" min="1" max="40" step="0.5"></label>
+    <label>Step size <output id="o-ss"></output><input id="ss" type="range" min="0.3" max="4" step="0.1"></label>
+    <label>Evaporation <output id="o-decay"></output><input id="decay" type="range" min="0.005" max="0.3" step="0.005"></label>
+
+    <select id="palette" aria-label="Palette"></select>
+
+    <div class="row">
+      <button class="b" id="reset">Reseed <kbd>R</kbd></button>
+      <button class="b" id="pause">Pause <kbd>␣</kbd></button>
+      <button class="b" id="scatter">Scatter food</button>
+      <button class="b" id="clear">Clear food</button>
+    </div>
+    <div class="stats" id="stats"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const DEG = Math.PI / 180;
+  const TARGET_CELLS = 260000;   // grid resolution budget; the canvas is upscaled by CSS
+  const AGENT_DENSITY = 0.22;    // agents per grid cell
+  const DEPOSIT = 5;
+  const FOOD_STRENGTH = 3;
+
+  const PRESETS = {
+    'Honeycomb': { sa: 45, ra: 22, so: 20, ss: 1.2, decay: 0.05 },
+    'Cells':     { sa: 30, ra: 70, so: 14, ss: 2.2, decay: 0.20 },
+    'Veins':     { sa: 22, ra: 45, so: 9,  ss: 1.0, decay: 0.10 },
+    'Threads':   { sa: 80, ra: 45, so: 6,  ss: 1.5, decay: 0.15 },
+    'Rivers':    { sa: 20, ra: 12, so: 18, ss: 1.4, decay: 0.08 },
+    'Microbes':  { sa: 60, ra: 30, so: 4,  ss: 1.0, decay: 0.02 },
+  };
+
+  const PALETTES = {
+    'Ember':   ['#07060b', '#3b0f4f', '#a3245e', '#f0703c', '#f3c76b', '#fff6dc'],
+    'Abyss':   ['#03070d', '#062a45', '#0b6e8a', '#2fc1b8', '#b6f5d8', '#ffffff'],
+    'Moss':    ['#050805', '#13301a', '#2f6b2a', '#8fb339', '#e6e28a', '#fffbe8'],
+    'Ink':     ['#f4efe6', '#d9cfbf', '#9b8d78', '#5b5144', '#2a251f', '#0d0b09'],
+  };
+
+  const params = { ...PRESETS.Honeycomb };
+  let W, H, trail, next, food, N, ax, ay, ah, image, pix, lut;
+  let paused = false;
+
+  // ---------- setup ----------
+  function buildLut(stops) {
+    const rgb = stops.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+    lut = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      const t = (i / 255) * (rgb.length - 1);
+      const k = Math.min(rgb.length - 2, Math.floor(t));
+      const f = t - k;
+      const c = [0, 1, 2].map((j) => Math.round(rgb[k][j] + (rgb[k + 1][j] - rgb[k][j]) * f));
+      lut[i] = (255 << 24) | (c[2] << 16) | (c[1] << 8) | c[0]; // little-endian ABGR
+    }
+    document.body.style.background = stops[0];
+  }
+
+  function resize() {
+    const scale = Math.max(1, Math.sqrt((innerWidth * innerHeight) / TARGET_CELLS));
+    W = Math.max(64, Math.round(innerWidth / scale));
+    H = Math.max(64, Math.round(innerHeight / scale));
+    canvas.width = W;
+    canvas.height = H;
+    trail = new Float32Array(W * H);
+    next = new Float32Array(W * H);
+    food = new Float32Array(W * H);
+    image = ctx.createImageData(W, H);
+    pix = new Uint32Array(image.data.buffer);
+    seed();
+  }
+
+  function seed() {
+    N = Math.round(W * H * AGENT_DENSITY);
+    ax = new Float32Array(N); ay = new Float32Array(N); ah = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      ax[i] = Math.random() * W; ay[i] = Math.random() * H;
+      ah[i] = Math.random() * 2 * Math.PI;
+    }
+    trail.fill(0);
+  }
+
+  // ---------- simulation ----------
+  function sense(x, y) {
+    let xi = x | 0, yi = y | 0;
+    if (xi < 0) xi += W; else if (xi >= W) xi -= W;
+    if (yi < 0) yi += H; else if (yi >= H) yi -= H;
+    return trail[yi * W + xi];
+  }
+
+  function stepAgents() {
+    const SA = params.sa * DEG, RA = params.ra * DEG, SO = params.so, SS = params.ss;
+    for (let i = 0; i < N; i++) {
+      const x = ax[i], y = ay[i];
+      let h = ah[i];
+      const F = sense(x + Math.cos(h) * SO, y + Math.sin(h) * SO);
+      const L = sense(x + Math.cos(h + SA) * SO, y + Math.sin(h + SA) * SO);
+      const R = sense(x + Math.cos(h - SA) * SO, y + Math.sin(h - SA) * SO);
+
+      if (F > L && F > R) { /* keep going */ }
+      else if (F < L && F < R) h += (Math.random() < 0.5 ? RA : -RA);
+      else if (L > R) h += RA;
+      else if (R > L) h -= RA;
+
+      let nx = x + Math.cos(h) * SS, ny = y + Math.sin(h) * SS;
+      if (nx < 0) nx += W; else if (nx >= W) nx -= W;
+      if (ny < 0) ny += H; else if (ny >= H) ny -= H;
+      ax[i] = nx; ay[i] = ny; ah[i] = h;
+      trail[(ny | 0) * W + (nx | 0)] += DEPOSIT;
+    }
+  }
+
+  let meanTrail = 1;
+  function diffuse() {
+    const keep = (1 - params.decay) / 9;
+    let sum = 0;
+    for (let y = 0; y < H; y++) {
+      const up = (y === 0 ? H - 1 : y - 1) * W, mid = y * W, dn = (y === H - 1 ? 0 : y + 1) * W;
+      for (let x = 0; x < W; x++) {
+        const l = x === 0 ? W - 1 : x - 1, r = x === W - 1 ? 0 : x + 1;
+        next[mid + x] =
+          (trail[up + l] + trail[up + x] + trail[up + r] +
+           trail[mid + l] + trail[mid + x] + trail[mid + r] +
+           trail[dn + l] + trail[dn + x] + trail[dn + r]) * keep + food[mid + x];
+        sum += next[mid + x];
+      }
+    }
+    // ease toward the new mean so exposure never flickers
+    meanTrail += (sum / (W * H) - meanTrail) * 0.05;
+    const t = trail; trail = next; next = t;
+  }
+
+  function render() {
+    // soft tone-map relative to the mean, so sparse and dense patterns both stay readable
+    const k = 1 / (meanTrail * 3 + 1e-6);
+    for (let i = 0, n = W * H; i < n; i++) {
+      pix[i] = lut[(255 * (1 - Math.exp(-trail[i] * k))) | 0];
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+
+  // ---------- food painting ----------
+  function plant(cx, cy, radius) {
+    const r2 = radius * radius;
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dy * dy > r2) continue;
+        const x = ((cx + dx) % W + W) % W, y = ((cy + dy) % H + H) % H;
+        food[y * W + x] = FOOD_STRENGTH;
+      }
+    }
+  }
+
+  function toGrid(e) {
+    const rect = canvas.getBoundingClientRect();
+    return [Math.floor(((e.clientX - rect.left) / rect.width) * W), Math.floor(((e.clientY - rect.top) / rect.height) * H)];
+  }
+
+  let painting = false, last = null;
+  canvas.addEventListener('pointerdown', (e) => { painting = true; last = toGrid(e); plant(...last, 3); canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!painting) return;
+    const [x, y] = toGrid(e);
+    const steps = Math.max(1, Math.hypot(x - last[0], y - last[1]) | 0);
+    for (let s = 1; s <= steps; s++) plant(Math.round(last[0] + (x - last[0]) * s / steps), Math.round(last[1] + (y - last[1]) * s / steps), 2);
+    last = [x, y];
+  });
+  addEventListener('pointerup', () => { painting = false; });
+
+  // ---------- UI ----------
+  const sliders = ['sa', 'ra', 'so', 'ss', 'decay'];
+  const fmt = { sa: (v) => v + '°', ra: (v) => v + '°', so: (v) => v.toFixed(1), ss: (v) => v.toFixed(1), decay: (v) => v.toFixed(3) };
+
+  function syncUI() {
+    for (const k of sliders) { $(k).value = params[k]; $('o-' + k).textContent = fmt[k](params[k]); }
+    history.replaceState(null, '', '#' + sliders.map((k) => `${k}=${params[k]}`).join('&'));
+  }
+  for (const k of sliders) {
+    $(k).addEventListener('input', (e) => { params[k] = parseFloat(e.target.value); syncUI(); });
+  }
+  // a garden is fully described by its URL, so a link reproduces it
+  function readHash() {
+    const h = new URLSearchParams(location.hash.slice(1));
+    for (const k of sliders) if (h.has(k) && !isNaN(parseFloat(h.get(k)))) params[k] = parseFloat(h.get(k));
+  }
+
+  for (const name of Object.keys(PRESETS)) $('preset').add(new Option(name, name));
+  $('preset').addEventListener('change', (e) => { Object.assign(params, PRESETS[e.target.value]); syncUI(); seed(); });
+
+  for (const name of Object.keys(PALETTES)) $('palette').add(new Option('Palette: ' + name, name));
+  $('palette').addEventListener('change', (e) => buildLut(PALETTES[e.target.value]));
+
+  const togglePause = () => { paused = !paused; $('pause').firstChild.textContent = paused ? 'Play ' : 'Pause '; };
+  $('reset').addEventListener('click', () => seed());
+  $('pause').addEventListener('click', togglePause);
+  $('scatter').addEventListener('click', () => { for (let i = 0; i < 14; i++) plant((Math.random() * W) | 0, (Math.random() * H) | 0, 3); });
+  $('clear').addEventListener('click', () => food.fill(0));
+  $('toggle').addEventListener('click', () => {
+    const c = $('panel').classList.toggle('collapsed');
+    $('toggle').textContent = c ? 'show' : 'hide';
+  });
+  addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'SELECT') return;
+    if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+    else if (e.key === 'r' || e.key === 'R') seed();
+  });
+
+  let resizeTimer;
+  addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 150); });
+
+  // ---------- loop ----------
+  let frames = 0, lastStat = performance.now();
+  function frame(now) {
+    if (!paused) { stepAgents(); diffuse(); }
+    render();
+    frames++;
+    if (now - lastStat > 500) {
+      $('stats').textContent = `${N.toLocaleString()} agents · ${W}×${H} grid · ${Math.round(frames * 1000 / (now - lastStat))} fps`;
+      frames = 0; lastStat = now;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  if (innerWidth < 600) { $('panel').classList.add('collapsed'); $('toggle').textContent = 'show'; }
+  buildLut(PALETTES.Ember);
+  readHash();
+  syncUI();
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
