@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Faint Traces</title>
+<style>
+  :root {
+    --table: #1b1613; --ink: #ece2cf; --muted: #a8977f; --faint: #6f604f;
+    --line: rgba(236, 226, 207, 0.14); --accent: #d9a35b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 50% 30%, #2a221c 0%, var(--table) 60%, #110d0b 100%) fixed, var(--table);
+    color: var(--ink);
+    font: 16px/1.5 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 28px 16px 48px; }
+  header { text-align: center; margin-bottom: 18px; }
+  h1 { font-weight: normal; font-size: 30px; letter-spacing: 0.06em; margin: 0; }
+  .sub { margin: 2px 0 0; color: var(--muted); font-style: italic; }
+
+  .steps { display: flex; justify-content: center; gap: 6px 18px; flex-wrap: wrap; margin: 14px 0 16px; font-size: 14px; color: var(--faint); }
+  .steps span.on { color: var(--accent); }
+  .steps span.done { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
+
+  figure { margin: 0 auto; position: relative; width: var(--size); height: var(--size); }
+  canvas#paper {
+    display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.05), 0 18px 40px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.4);
+  }
+    .caption { text-align: center; color: var(--muted); font-style: italic; font-size: 14px; margin-top: 12px; min-height: 1.5em; }
+
+  .controls { margin: 18px auto 0; width: var(--size); max-width: 100%; }
+  .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px; }
+  label { display: grid; grid-template-columns: 1fr auto; font-size: 14px; color: var(--muted); }
+  label output { color: var(--ink); font-style: italic; }
+  input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  .buttons { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  button {
+    flex: 1 1 140px; font: inherit; font-size: 15px; color: var(--ink); cursor: pointer;
+    background: rgba(236, 226, 207, 0.06); border: 1px solid var(--line); border-radius: 3px; padding: 9px 12px;
+  }
+  button.primary { background: var(--accent); color: #241a10; border-color: transparent; }
+  button:disabled { opacity: 0.35; cursor: default; }
+  button[hidden] { display: none; }
+  .status { margin-top: 12px; font-size: 14px; color: var(--muted); min-height: 1.5em; text-align: center; }
+  .status b { color: var(--ink); font-weight: normal; }
+
+  .colophon { margin: 34px auto 0; width: var(--size); max-width: 100%; border-top: 1px solid var(--line); padding-top: 16px; font-size: 14px; color: var(--muted); }
+  .colophon p { margin: 0 0 10px; }
+  .colophon em { color: var(--ink); }
+  @media (max-width: 480px) { .sliders { grid-template-columns: 1fr; } h1 { font-size: 26px; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Faint Traces</h1>
+    <p class="sub">a photogenic drawing you cannot draw</p>
+  </header>
+
+  <div class="steps" id="steps">
+    <span data-step="salt">i. salt the paper</span>
+    <span data-step="sun">ii. carry it into the sun</span>
+    <span data-step="fix">iii. fix it in strong brine</span>
+  </div>
+
+  <figure id="sheet">
+    <canvas id="paper"></canvas>
+  </figure>
+  <p class="caption" id="caption"></p>
+
+  <div class="controls">
+    <div class="sliders">
+      <label>Salt <output id="o-salt"></output><input id="salt" type="range" min="0.25" max="3" step="0.05" value="1"></label>
+      <label>Depth of the brine <output id="o-depth"></output><input id="depth" type="range" min="1" max="2" step="0.05" value="1.25"></label>
+    </div>
+    <div class="buttons">
+      <button class="primary" id="go">Carry it into the sun</button>
+      <button id="fix" disabled>Fix in strong brine</button>
+      <button id="save" hidden>Save plate</button>
+      <button id="fresh">New sheet</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <section class="colophon">
+    <p>Made from five random words: <em>beautiful, draw, beside, relationship, salt.</em></p>
+    <p>In 1833, beside Lake Como, Henry Fox Talbot tried to draw a beautiful view and couldn't. When he lifted his eye from the camera lucida, his pencil had left “only faint traces.” So he got paper to draw for him, with salt and then silver. The image depended on the <em>relationship</em> between them. A little salt made the paper hungry for light. A lot of salt made it blind, so strong brine became his first fixer.</p>
+    <p>Salt flats crack into polygons a metre or two across because dense brine sinks and convects in the soil beneath the crust. The cells are about as wide as the convection is deep, and salt piles up where the flows meet (Lasser et al., <i>Phys. Rev. X</i>, 2023).</p>
+    <p>You can't draw the picture here either. You only lay down salt. The brine below rearranges it, the sun develops it according to the ratio, and the shadow of your hand falls beside it.</p>
+  </section>
+</main>
+
+<script>
+(() => {
+  const N = 256, NN = N * N;
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('paper'), ctx = canvas.getContext('2d');
+  const small = document.createElement('canvas'); small.width = small.height = N;
+  const sctx = small.getContext('2d');
+  const img = sctx.createImageData(N, N);
+
+  // ---------- state ----------
+  const S = new Float32Array(NN);          // salt per cell
+  const dS = new Float32Array(NN);
+  const P = new Float32Array(NN);          // where salt was laid (does not drift); the brine convects there
+  const D = new Float32Array(NN);          // light dose received by silver
+  const A = new Float32Array(NN);          // where silver was brushed on
+  const sparkle = new Float32Array(NN);
+  const ur = new Float64Array(NN), ui = new Float64Array(NN);   // brine convection field
+  const nr = new Float64Array(NN), ni = new Float64Array(NN);
+  const k2 = new Float64Array(NN);
+
+  let phase = 'salt';        // salt → sun → dusk → fixing → fixed
+  let dayT = 0, fixT = 0, plate = 1;
+  const DAY_SECONDS = 80;
+  const hand = { x: 0, y: 0, over: false };
+
+  // ---------- FFT (radix-2, in place) ----------
+  const LOGN = Math.log2(N);
+  const rev = new Uint16Array(N);
+  for (let i = 0; i < N; i++) { let r = 0; for (let b = 0; b < LOGN; b++) r |= ((i >> b) & 1) << (LOGN - 1 - b); rev[i] = r; }
+  const cosT = new Float64Array(N / 2), sinT = new Float64Array(N / 2);
+  for (let i = 0; i < N / 2; i++) { cosT[i] = Math.cos(2 * Math.PI * i / N); sinT[i] = Math.sin(2 * Math.PI * i / N); }
+  const tr = new Float64Array(N), ti = new Float64Array(N);
+
+  function fft1(re, im, inv) {
+    for (let i = 0; i < N; i++) { const j = rev[i]; if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+    const sgn = inv ? 1 : -1;
+    for (let size = 2; size <= N; size <<= 1) {
+      const half = size >> 1, step = N / size;
+      for (let i = 0; i < N; i += size) {
+        for (let k = 0; k < half; k++) {
+          const c = cosT[k * step], s = sgn * sinT[k * step];
+          const a = i + k, b = a + half;
+          const xr = re[b] * c - im[b] * s, xi = re[b] * s + im[b] * c;
+          re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        }
+      }
+    }
+  }
+  function fft2(re, im, inv) {
+    for (let y = 0; y < N; y++) {
+      const o = y * N;
+      for (let x = 0; x < N; x++) { tr[x] = re[o + x]; ti[x] = im[o + x]; }
+      fft1(tr, ti, inv);
+      for (let x = 0; x < N; x++) { re[o + x] = tr[x]; im[o + x] = ti[x]; }
+    }
+    for (let x = 0; x < N; x++) {
+      for (let y = 0; y < N; y++) { tr[y] = re[y * N + x]; ti[y] = im[y * N + x]; }
+      fft1(tr, ti, inv);
+      for (let y = 0; y < N; y++) { re[y * N + x] = tr[y]; im[y * N + x] = ti[y]; }
+    }
+    if (inv) for (let i = 0; i < NN; i++) { re[i] /= NN; im[i] /= NN; }
+  }
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const kx = 2 * Math.PI * Math.min(x, N - x) / N, ky = 2 * Math.PI * Math.min(y, N - y) / N;
+    k2[y * N + x] = kx * kx + ky * ky;
+  }
+
+  // ---------- the brine beneath the crust ----------
+  // Swift–Hohenberg with a quadratic term: the simplest equation whose instability
+  // picks one wavelength and settles into hexagonal cells. It only grows where there is salt.
+  const DT = 0.5;
+  let G = 1.4, EPS = 0.15;
+  function cellWidth() { return 8 + (parseFloat($('depth').value) - 1) * 16; } // grid cells; deeper brine → wider polygons
+
+  function convect() {
+    const q = 2 * Math.PI / cellWidth(), q2 = q * q;
+    for (let i = 0; i < NN; i++) {
+      const eps = -0.2 + (EPS + 0.2) * Math.min(1, P[i] / 0.6);
+      const u = ur[i];
+      nr[i] = eps * u + G * u * u - u * u * u + (Math.random() - 0.5) * 0.004;
+      ni[i] = 0; ui[i] = 0;
+    }
+    fft2(ur, ui, false);
+    fft2(nr, ni, false);
+    for (let i = 0; i < NN; i++) {
+      const l = 1 - k2[i] / q2;
+      const den = 1 + DT * l * l;
+      ur[i] = (ur[i] + DT * nr[i]) / den;
+      ui[i] = (ui[i] + DT * ni[i]) / den;
+    }
+    fft2(ur, ui, true);
+  }
+
+  // salt drifts toward where the brine sinks (low u) and diffuses; the total is conserved
+  const KAPPA = 0.03, DIFF = 0.012;
+  function driftSalt() {
+    dS.fill(0);
+    for (let y = 0; y < N; y++) {
+      const row = y * N, down = ((y + 1) % N) * N;
+      for (let x = 0; x < N; x++) {
+        const i = row + x;
+        for (let n = 0; n < 2; n++) {
+          const j = n === 0 ? row + ((x + 1) % N) : down + x;
+          const du = ur[i] - ur[j];
+          const F = KAPPA * du * (du > 0 ? S[i] : S[j]) + DIFF * (S[i] - S[j]);
+          dS[i] -= F; dS[j] += F;
+        }
+      }
+    }
+    for (let i = 0; i < NN; i++) { const v = S[i] + dS[i]; S[i] = v > 0 ? v : 0; }
+  }
+
+  // ---------- chemistry of light ----------
+  // Sensitivity as a function of salt-to-silver ratio x: a little salt (silver in excess)
+  // is most sensitive, bare silver nitrate is sluggish, and brine shuts it off.
+  const SENS = new Float32Array(1024), SENS_MAX = 8;
+  for (let i = 0; i < 1024; i++) {
+    const x = (i / 1023) * SENS_MAX / 0.35;
+    SENS[i] = (0.03 + x) * Math.exp(-x) / 0.3753;
+  }
+  const sens = (s) => SENS[Math.min(1023, (s / SENS_MAX * 1023) | 0)];
+
+  function sunlight() {
+    if (phase === 'sun') return Math.sin(Math.PI * dayT) ** 0.8;
+    if (phase === 'dusk') return 0.035; // unfixed paper keeps printing in any light
+    return 0;
+  }
+  function shadowCentre() {
+    // the sun moves east to west, so the hand's shadow swings beneath it
+    const a = Math.PI * (phase === 'sun' ? dayT : 0.5);
+    return [hand.x - Math.cos(a) * 22, hand.y + 16 - Math.sin(a) * 6];
+  }
+
+  function expose(dt) {
+    const light = sunlight();
+    if (light <= 0) return;
+    const k = 0.075 * light * dt;
+    const [cx, cy] = shadowCentre(), R = 19;
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const i = y * N + x;
+        let shade = 1;
+        if (hand.over) {
+          const d = Math.hypot(x - cx, y - cy);
+          if (d < R + 7) shade = 1 - 0.92 * Math.min(1, (R + 7 - d) / 14);
+        }
+        D[i] += k * shade * sens(S[i]) * A[i];
+      }
+    }
+  }
+
+  // ---------- the sheet ----------
+  function wobble(seed) {
+    const ph = Array.from({ length: 5 }, () => Math.random() * 6.283);
+    return (t) => ph.reduce((s, p, n) => s + Math.sin(t * 0.02 * (n + 1) * (1 + seed * 0.13) + p) / (n + 1.3), 0);
+  }
+  function newSheet() {
+    S.fill(0); P.fill(0); D.fill(0); ur.fill(0); ui.fill(0);
+    for (let i = 0; i < NN; i++) ur[i] = (Math.random() - 0.5) * 0.02;
+    // silver is brushed on by hand: ragged edges, faint brush streaks
+    const L = wobble(1), Rr = wobble(2), T = wobble(3), B = wobble(4), streak = wobble(5), streak2 = wobble(6);
+    const m = 15, soft = (v) => Math.max(0, Math.min(1, v / 2.5));
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const inside = soft(x - (m + 4 * L(y))) * soft(N - m + 4 * Rr(y) - x) * soft(y - (m + 4 * T(x))) * soft(N - m + 4 * B(x) - y);
+      A[y * N + x] = inside * (0.94 + 0.03 * streak(y * 3) + 0.03 * streak2(y * 5 + x * 0.4));
+      sparkle[y * N + x] = Math.random() ** 3;
+    }
+    phase = 'salt'; dayT = 0; fixT = 0;
+    syncUI();
+  }
+
+  // ---------- render ----------
+  const mix = (a, b, t) => a + (b - a) * t;
+  const PAL = {
+    before: { paper: [238, 228, 196], bare: [243, 238, 226], mid: [142, 96, 104], dark: [56, 32, 50] },
+    after:  { paper: [241, 231, 211], bare: [243, 238, 226], mid: [176, 112, 76], dark: [84, 42, 26] },
+  };
+  const grain = document.createElement('canvas');
+  function buildGrain(px) {
+    grain.width = grain.height = px;
+    const g = grain.getContext('2d'), gi = g.createImageData(px, px);
+    for (let i = 0; i < px * px; i++) {
+      const v = 200 + Math.random() * 55;
+      gi.data.set([v, v, v, 255], i * 4);
+    }
+    g.putImageData(gi, 0, 0);
+  }
+
+  function render() {
+    const f = phase === 'fixed' ? 1 : phase === 'fixing' ? fixT : 0;
+    const ease = f * f * (3 - 2 * f);
+    const p = {};
+    for (const key of ['paper', 'bare', 'mid', 'dark']) p[key] = [0, 1, 2].map((c) => mix(PAL.before[key][c], PAL.after[key][c], ease));
+    const data = img.data;
+    for (let i = 0; i < NN; i++) {
+      const d = 1 - Math.exp(-D[i]);
+      const a = A[i];
+      let r, g, b;
+      const base0 = mix(p.bare[0], p.paper[0], a), base1 = mix(p.bare[1], p.paper[1], a), base2 = mix(p.bare[2], p.paper[2], a);
+      if (d < 0.5) {
+        const t = d * 2;
+        r = mix(base0, p.mid[0], t); g = mix(base1, p.mid[1], t); b = mix(base2, p.mid[2], t);
+      } else {
+        const t = (d - 0.5) * 2;
+        r = mix(p.mid[0], p.dark[0], t); g = mix(p.mid[1], p.dark[1], t); b = mix(p.mid[2], p.dark[2], t);
+      }
+      // undissolved salt glistens on the surface until the print is washed
+      const gl = Math.min(0.6, S[i] * 0.3) * (1 - ease) * (0.55 + 0.45 * sparkle[i]);
+      r = mix(r, 252, gl); g = mix(g, 251, gl); b = mix(b, 246, gl);
+      const o = i * 4;
+      data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+    }
+    sctx.putImageData(img, 0, 0);
+
+    const W = canvas.width;
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(small, 0, 0, W, W);
+    ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 0.18;
+    ctx.drawImage(grain, 0, 0, W, W);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+
+    // show the hand's shadow while the paper is in the light
+    if (hand.over && sunlight() > 0) {
+      const [cx, cy] = shadowCentre(), s = W / N;
+      const grad = ctx.createRadialGradient(cx * s, cy * s, 0, cx * s, cy * s, 26 * s);
+      grad.addColorStop(0, 'rgba(30,20,15,0.32)'); grad.addColorStop(0.55, 'rgba(30,20,15,0.22)'); grad.addColorStop(1, 'rgba(30,20,15,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, W);
+    }
+  }
+
+  // ---------- salting by hand ----------
+  function toGrid(e) {
+    const r = canvas.getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * N, ((e.clientY - r.top) / r.height) * N];
+  }
+  function sprinkle(cx, cy) {
+    const amt = 0.055 * parseFloat($('salt').value), sig = 8, R = 20;
+    for (let y = Math.floor(cy - R); y <= cy + R; y++) for (let x = Math.floor(cx - R); x <= cx + R; x++) {
+      if (x < 0 || y < 0 || x >= N || y >= N) continue;
+      const d2 = (x - cx) ** 2 + (y - cy) ** 2;
+      const add = amt * Math.exp(-d2 / (2 * sig * sig));
+      S[y * N + x] += add; P[y * N + x] += add;
+    }
+  }
+  const salting = () => phase === 'salt' || phase === 'sun' || phase === 'dusk';
+  let drawing = false, last = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    hand.over = true; [hand.x, hand.y] = toGrid(e);
+    if (!salting()) return;
+    drawing = true; last = toGrid(e); sprinkle(...last);
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    hand.over = true; [hand.x, hand.y] = toGrid(e);
+    if (!drawing) return;
+    const [x, y] = toGrid(e);
+    const steps = Math.max(1, Math.ceil(Math.hypot(x - last[0], y - last[1])));
+    for (let s = 1; s <= steps; s++) sprinkle(last[0] + (x - last[0]) * s / steps, last[1] + (y - last[1]) * s / steps);
+    last = [x, y];
+  });
+  const lift = () => { drawing = false; };
+  canvas.addEventListener('pointerup', lift);
+  canvas.addEventListener('pointercancel', lift);
+  canvas.addEventListener('pointerleave', (e) => { if (!drawing || e.pointerType !== 'mouse') hand.over = false; });
+
+  // ---------- UI ----------
+  const ROMAN = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+  const roman = (n) => ROMAN.reduce((s, [v, r]) => { while (n >= v) { s += r; n -= v; } return s; }, '');
+  const clock = (t) => { const m = Math.round((8 + t * 10) * 60); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; };
+
+  function syncUI() {
+    $('o-salt').textContent = (() => { const v = +$('salt').value; return v < 0.6 ? 'a pinch' : v < 1.4 ? 'a handful' : v < 2.2 ? 'heavy' : 'brine'; })();
+    $('o-depth').textContent = (+$('depth').value).toFixed(2) + ' m';
+    const order = ['salt', 'sun', 'fix'];
+    const cur = phase === 'salt' ? 0 : phase === 'sun' || phase === 'dusk' ? 1 : phase === 'fixing' ? 2 : 3;
+    document.querySelectorAll('#steps span').forEach((el) => {
+      const i = order.indexOf(el.dataset.step);
+      el.className = i === cur ? 'on' : i < cur ? 'done' : '';
+    });
+    $('go').hidden = cur > 1;
+    $('go').disabled = phase !== 'salt';
+    $('go').textContent = phase === 'salt' ? 'Carry it into the sun' : 'In the sun';
+    $('fix').hidden = cur > 1;
+    $('fix').disabled = phase === 'salt';
+    $('save').hidden = phase !== 'fixed';
+    $('caption').textContent = phase === 'fixed' ? `Plate ${roman(plate)}. Salt print, ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}.` : '';
+  }
+  function status() {
+    let s = '';
+    if (phase === 'salt') s = 'Draw on the paper to lay down salt. The polygons form beneath it. The image is still invisible.';
+    else if (phase === 'sun') s = `<b>${clock(dayT)}</b> · The sun is printing. Your hand's shadow falls on the paper too.`;
+    else if (phase === 'dusk') s = '<b>Dusk.</b> Unfixed, the paper keeps darkening in any light. Fix it in strong brine.';
+    else if (phase === 'fixing') s = 'Washing in strong brine…';
+    else s = 'Fixed. The salt has made it blind to light, so it will not change again.';
+    $('status').innerHTML = s;
+  }
+
+  $('salt').addEventListener('input', syncUI);
+  $('depth').addEventListener('input', syncUI);
+  $('go').addEventListener('click', () => { if (phase === 'salt') { phase = 'sun'; dayT = 0; syncUI(); } });
+  $('fix').addEventListener('click', () => { if (phase === 'sun' || phase === 'dusk') { phase = 'fixing'; fixT = 0; syncUI(); } });
+  $('fresh').addEventListener('click', () => { if (phase === 'fixed') plate++; newSheet(); });
+  $('save').addEventListener('click', () => {
+    canvas.toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `faint-traces-plate-${roman(plate)}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+  });
+
+  function resize() {
+    const size = Math.max(260, Math.min(560, innerWidth - 32));
+    document.documentElement.style.setProperty('--size', size + 'px');
+    const px = Math.round(size * Math.min(2, devicePixelRatio || 1));
+    canvas.width = canvas.height = px;
+    buildGrain(px);
+  }
+  addEventListener('resize', resize);
+
+  // ---------- loop ----------
+  let prev = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - prev) / 1000); prev = now;
+    if (phase !== 'fixing' && phase !== 'fixed') { convect(); driftSalt(); expose(dt); }
+    if (phase === 'sun') { dayT += dt / DAY_SECONDS; if (dayT >= 1) { dayT = 1; phase = 'dusk'; syncUI(); } }
+    if (phase === 'fixing') { fixT += dt / 2.5; if (fixT >= 1) { fixT = 1; phase = 'fixed'; syncUI(); } }
+    render();
+    status();
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  newSheet();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
